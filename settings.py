@@ -6,7 +6,6 @@ import os
 
 SENTINEL_HUB_SECRET_KEY = os.environ.get("SENTINEL_HUB_SECRET_KEY")
 SENTINEL_HUB_CLIENT_ID = os.environ.get("SENTINEL_HUB_CLIENT_ID")
-
 SENTINEL_HUB_INSTANCE_ID = os.environ.get("SENTINEL_HUB_INSTANCE_ID")
 
 CLI = False
@@ -26,7 +25,7 @@ FIELDS = {
             "width": 512,
             "height": 856,
             "dir": "/tmp/test_dir",
-            "resolution": 6,# meters
+            "resolution": 6,# meters for small area change resolution to 6 or some other from 1 to 2500
             "coordinates": [35.424557,32.521052, 35.560513,32.650360],
             # "coordinates": [34.878856,32.120528, 34.885315,32.129178],
             "time_range": {
