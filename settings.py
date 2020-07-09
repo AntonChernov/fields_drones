@@ -5,18 +5,12 @@ import os
 
 
 
-# SENTINEL_HUB_SECRET_KEY = os.environ.get("SENT_SECRET_KEY",
-#                                          ";gK@$:y>ib)5u4[rQ5}<<:leo<?*.o1yoh_0fqE0")
 
-SENTINEL_HUB_SECRET_KEY = os.environ.get("SENT_SECRET_KEY",
-                                         "1Pvjh-r(C%[CLOjheY>HmsYU8d&}A>cCr&E!]_S^")
-# SENTINEL_HUB_CLIENT_ID = os.environ.get("SENTINEL_HUB_CLIENT_ID",
-#                                         "4278197c-61d9-4994-8938-7861751f542e")
-SENTINEL_HUB_CLIENT_ID = os.environ.get("SENTINEL_HUB_CLIENT_ID",
-                                        "67ab20e8-f17a-4eb8-aa74-9957cb339765")
+SENTINEL_HUB_SECRET_KEY = os.environ.get("SENT_SECRET_KEY")
 
-SENTINEL_HUB_INSTANCE_ID = os.environ.get("SENTINEL_HUB_INSTANCE_ID",
-                                          "dc0d8642-27d6-4172-be8d-9df83c0d8c63")
+SENTINEL_HUB_CLIENT_ID = os.environ.get("SENTINEL_HUB_CLIENT_ID")
+
+SENTINEL_HUB_INSTANCE_ID = os.environ.get("SENTINEL_HUB_INSTANCE_ID")
 
 CLI = False
 
