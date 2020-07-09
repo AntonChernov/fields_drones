@@ -29,7 +29,7 @@ FIELDS = {
             "width": 512,
             "height": 856,
             "dir": "/tmp/test_dir",
-            "resolution": 60,# meters
+            "resolution": 60,# meters for small area change resolution to 6 or some enother from 1 to 2500
             "coordinates": [35.424557,32.521052, 35.560513,32.650360],
             # "coordinates": [34.878856,32.120528, 34.885315,32.129178],
             "time_range": {
