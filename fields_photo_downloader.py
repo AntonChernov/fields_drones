@@ -1,16 +1,15 @@
+import concurrent
+import datetime
 import logging
 import os
 import argparse
-from typing import Tuple, Any
-
-
 from sentinelhub import (
     SHConfig, MimeType, CRS,
     BBox, SentinelHubRequest,
     DataSource, bbox_to_dimensions, WmsRequest
 )
-
 import settings
+from utils import init_mp_pool, init_logger, init_thread_pool_executor, timeit
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ class GISImageDownloader(object):
         self.data_dir = self.check_data_dir_exist()
         self.start_date = self.data.get("time_range").get("start_date")
         self.end_date = self.data.get("time_range").get("end_date")
-        self.end_date = self.data.get("time_range").get("end_date")
+        self.band_type = None
 
     def check_data_dir_exist(self):
         pth = self.data.get("dir")
@@ -49,7 +48,7 @@ class GISImageDownloader(object):
         conf.instance_id = settings.SENTINEL_HUB_INSTANCE_ID
         return conf
 
-    def bbox_size(self) -> Tuple[BBox, Any]:
+    def bbox_size(self):
         resolution = self.data.get("resolution")
         coords = self.data.get("coordinates")
         _bbox = BBox(bbox=coords, crs=CRS.WGS84)
@@ -63,14 +62,46 @@ class GISImageDownloader(object):
         return [float(item) for item in coords.split(',')]
 
     def prepare_time(self, time_range):
-        t_r = time_range.strip()
-        return tuple(t_r.split(','))
+        tr = time_range.strip().split(',')
+        log.info("TIME RANGE {0}".format(tr))
+        if len(tr) == 2 and tr[-1] != '':
+            return tuple(tr)
+        else:
+            return tr
 
     def check_band_type(self, band_type):
         if band_type in settings.BAND_TYPES:
             return band_type
         else:
             raise ValueError("Band type incorrect check settings.BAND_TYPES.")
+
+    def eval_scr_by_band(self, band_name):
+        eval_src = settings.BAND_TYPES.get(band_name)
+        return eval_src.get("exec_script")
+
+    def dates_range(self, dates):
+        if len(dates) > 1:
+            start = datetime.datetime.strptime(dates[0], "%Y-%m-%d")
+            end = datetime.datetime.strptime(dates[1], "%Y-%m-%d")
+            date_generated = [
+                (start + datetime.timedelta(days=x)).strftime('%Y-%m-%d')
+                for x in range(0, (end - start).days + 1)
+            ]
+            return date_generated
+        else:
+            return dates
+
+    def multi_proc_requests(self, dates):
+        with init_mp_pool() as pool:
+            try:
+                for i in pool.imap_unordered(self.sentinel_mp_requests, dates):
+                    pass
+            except Exception as pool_exc:
+                log.error("Error is raised: {0}".format(pool_exc))
+
+    def get_satellite_data(self, dates):
+        for date in dates:
+            self.sentinel_mp_requests(date)
 
     def sentinel_hub_request(self):
         """
@@ -98,36 +129,79 @@ class GISImageDownloader(object):
 
         return sent_req
 
-    def sentinel_wms_request(self, coords, time_range, band_type):
+    def sentinel_mp_requests(self, date):
+        c = self._bbox
+        t = (date, date)
+        b = self.band_type
+        res = self.sentinel_cli_hub_request(c, t, b)
+        res.get_data(save_data=True)
+
+    def sentinel_cli_hub_request(self, coords, time_range, band_type):
         """
         In next title you can find acceptable layer(band-type)
         https://www.sentinel-hub.com/develop/api/ogc/standard-parameters/wms/
-        :param cords: Coordinates
+        :param cords: Coordinates in BBOX format
         :param time_range: str representation of time
-        :param band_type:
+        :param band_type: settings BAND_TYPES
         :return:
         """
-        wms_request = WmsRequest(
-            # data_source=DataSource.SENTINEL2_L1C,
-            layer=band_type,
-            data_folder=self.data_dir,
-            bbox=BBox(bbox=coords, crs=CRS.WGS84),
-            time=time_range,
-            image_format=MimeType.TIFF_d32f,
-            width=self.data.get("width"),
-            height=self.data.get("height"),
-            maxcc=self.data.get("maxcc"),
-            config=self.wms_config
-        )
-        return wms_request
 
-    def main_wms(self, arguments):
+        hr = SentinelHubRequest(
+            data_folder=self.data_dir,
+            evalscript=self.eval_scr_by_band(self.check_band_type(band_type)),
+            input_data=[
+                SentinelHubRequest.input_data(
+                    data_source=DataSource.SENTINEL2_L2A,
+                    time_interval=time_range,
+                )
+            ],
+            responses=[
+                SentinelHubRequest.output_response('default', MimeType.PNG)
+            ],
+            bbox=coords,
+            size=self._size,
+            config=self.config
+        )
+
+        return hr
+
+    @timeit
+    def main_cli(self, arguments):
         c = self.prepare_coordinates(arguments.coordinates)
         t = self.prepare_time(arguments.time_range)
         b = self.check_band_type(arguments.band_type)
-        req = self.sentinel_wms_request(c, t, b)
-        req.get_data(save_data=True)
-        log.debug(f"Files Saved in {req.data_folder}")
+        self._bbox = BBox(bbox=c, crs=CRS.WGS84)
+        self._size = bbox_to_dimensions(self._bbox, resolution=6)  # need add argument resolution
+        self.band_type = b
+        if t and len(t) > 1:
+            dates = self.dates_range(t)
+            log.info("DATES: {0}".format(dates))
+            self.multi_proc_requests(dates)
+        elif t and len(t) == 1:
+            t = tuple([t[0], t[0]])
+            req = self.sentinel_cli_hub_request(self._bbox, t, b)
+            req.get_data(save_data=True)
+            log.debug(f"Files Saved in {req.data_folder}")
+        else:
+            log.error("Dates set is empty or incorrect!")
+
+    @timeit
+    def main_cli_sync(self, arguments):
+        c = self.prepare_coordinates(arguments.coordinates)
+        t = self.prepare_time(arguments.time_range)
+        b = self.check_band_type(arguments.band_type)
+        if len(t) > 1:
+            self._bbox = BBox(bbox=c, crs=CRS.WGS84)
+            self._size = bbox_to_dimensions(self._bbox,
+                                            resolution=6)  # need add argument resolution
+            self.band_type = b
+            dates = self.dates_range(t)
+            log.info("DATES: {0}".format(dates))
+            self.get_satellite_data(dates)
+        else:
+            req = self.sentinel_cli_hub_request(c, t, b)
+            req.get_data(save_data=True)
+            log.debug(f"Files Saved in {req.data_folder}")
 
     def main(self):
         req = self.sentinel_hub_request()
@@ -136,6 +210,7 @@ class GISImageDownloader(object):
 
 
 if __name__ == '__main__':
+    init_logger(log)
     if settings.CLI:
         parser = argparse.ArgumentParser()
         parser.add_argument("-c", "--coordinates",  help="for coordinates "
@@ -148,7 +223,8 @@ if __name__ == '__main__':
                             action="store")
         args = parser.parse_args()
         inst = GISImageDownloader("test")
-        inst.main_wms(args)
+        inst.main_cli(args)# main_cli 23043.75 ms
+        # inst.main_cli_sync(args) # main_cli_sync 299120.74 ms
 
     else:
         inst = GISImageDownloader("test")
